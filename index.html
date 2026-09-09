@@ -20,10 +20,13 @@
   .panel{position:absolute;z-index:5;background:rgba(14,26,23,0.92);color:var(--paper);
     border:1px solid rgba(242,237,225,0.15);backdrop-filter:blur(6px);}
 
-  #title{top:16px;left:16px;padding:14px 18px;max-width:280px;border-left:3px solid var(--brass);}
+  #title{top:16px;left:16px;padding:14px 18px;max-width:280px;border-left:3px solid var(--brass);
+    transition:max-height 0.25s ease, padding 0.25s ease;max-height:220px;overflow:hidden;}
   #title h1{margin:0 0 2px;font-size:15px;letter-spacing:0.06em;text-transform:uppercase;font-weight:700;}
   #title .sub{font-size:12px;opacity:0.65;margin-bottom:8px;}
   #title p{font-size:12.5px;line-height:1.5;margin:0;opacity:0.85;}
+  #title.collapsed{max-height:26px;padding-bottom:14px;}
+  #title.collapsed #titleChevron{transform:rotate(-90deg);}
 
   #stops{bottom:16px;left:16px;padding:12px 16px;font-size:12px;width:210px;
     max-height:220px;overflow-y:auto;transition:max-height 0.25s ease, padding 0.25s ease;}
@@ -34,7 +37,7 @@
   .stop-row .swatch{width:10px;height:10px;border-radius:50%;flex:none;}
   .stop-row .swatch-icon{width:16px;height:16px;border-radius:50%;flex:none;object-fit:cover;}
   .stop-row .count{opacity:0.55;font-size:11px;margin-left:auto;}
-  .stop-row input[type=checkbox]{accent-color:var(--rust);}
+  .stop-row input[type=checkbox]{accent-color:#71bf4f;}
 
   #search{
     top:16px; right:16px; padding:12px 14px; width:230px; font-size:12px;
@@ -93,10 +96,15 @@
 <div id="map"></div>
 
 <div id="title" class="panel">
-  <h1>Damov Route</h1>
-  <div class="sub">Abuja Routes</div>
-  <p>All planned and active BRT corridors in one view. Click a route to
-  isolate it, or a line on the map for details.</p>
+  <h1 id="titleToggle" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+    <span>Damov Route</span>
+    <span id="titleChevron" style="transition:transform 0.2s;">▾</span>
+  </h1>
+  <div id="titleBody">
+    <div class="sub">Abuja Routes</div>
+    <p>All planned and active BRT corridors in one view. Click a route to
+    isolate it, or a line on the map for details.</p>
+  </div>
 </div>
 
 <div id="stops" class="panel">
@@ -439,6 +447,9 @@ document.getElementById('detailClose').addEventListener('click', () => {
   buildRouteList(document.getElementById('searchInput').value);
   map.setPaintProperty('routes-line', 'line-opacity', 0.9);
   hideDetail();
+});
+document.getElementById('titleToggle').addEventListener('click', () => {
+  document.getElementById('title').classList.toggle('collapsed');
 });
 document.getElementById('routesToggle').addEventListener('click', () => {
   document.getElementById('routes').classList.toggle('collapsed');
