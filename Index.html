@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Damov Route</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<style>
+  :root{
+    --ink:#0e1a17; --paper:#f2ede1; --brass:#b8863b; --rust:#c1502e;
+    --line:rgba(242,237,225,0.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--ink);
+    font-family:'Helvetica Neue',Arial,sans-serif;}
+  #map{position:absolute;inset:0;}
+
+  .panel{position:absolute;z-index:5;background:rgba(14,26,23,0.92);color:var(--paper);
+    border:1px solid rgba(242,237,225,0.15);backdrop-filter:blur(6px);}
+
+  #title{top:16px;left:16px;padding:14px 18px;max-width:280px;border-left:3px solid var(--brass);}
+  #title h1{margin:0 0 2px;font-size:15px;letter-spacing:0.06em;text-transform:uppercase;font-weight:700;}
+  #title .sub{font-size:12px;opacity:0.65;margin-bottom:8px;}
+  #title p{font-size:12.5px;line-height:1.5;margin:0;opacity:0.85;}
+
+  #stops{bottom:16px;left:16px;padding:12px 16px;font-size:12px;width:210px;
+    max-height:220px;overflow-y:auto;transition:max-height 0.25s ease, padding 0.25s ease;}
+  #stops h2{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;opacity:0.7;}
+  #stops.collapsed{max-height:38px;overflow:hidden;padding-bottom:14px;}
+  #stops.collapsed #stopsChevron{transform:rotate(-90deg);}
+  .stop-row{display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;}
+  .stop-row .swatch{width:10px;height:10px;border-radius:50%;flex:none;}
+  .stop-row .swatch-icon{width:16px;height:16px;border-radius:50%;flex:none;object-fit:cover;}
+  .stop-row .count{opacity:0.55;font-size:11px;margin-left:auto;}
+  .stop-row input[type=checkbox]{accent-color:var(--rust);}
+
+  #search{
+    top:16px; right:16px; padding:12px 14px; width:230px; font-size:12px;
+  }
+  #search input{
+    width:100%; padding:7px 9px; background:rgba(242,237,225,0.08);
+    border:1px solid rgba(242,237,225,0.25); color:var(--paper);
+    font-size:12.5px; border-radius:3px; outline:none;
+  }
+  #search input::placeholder{color:rgba(242,237,225,0.4);}
+
+  #routes{
+    top:78px; right:16px; padding:14px 16px; width:230px; max-height:400px;
+    overflow-y:auto; font-size:12px; transition:max-height 0.25s ease, padding 0.25s ease;
+  }
+  #routes h2{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;opacity:0.7;}
+  #routes.collapsed{max-height:38px;overflow:hidden;padding-bottom:14px;}
+  #routes.collapsed #routesChevron{transform:rotate(-90deg);}
+  .route-row{
+    display:flex; align-items:center; gap:8px; padding:7px 0;
+    border-top:1px solid rgba(242,237,225,0.1); cursor:pointer;
+  }
+  .route-row:hover{color:var(--brass);}
+  .route-row .swatch{width:12px;height:12px;border-radius:50%;flex:none;}
+  .route-row .name{flex:1;}
+  .route-row.dimmed{opacity:0.35;}
+  .route-row input[type=checkbox]{accent-color:var(--rust);}
+
+  #detail{
+    bottom:16px; right:16px; padding:14px 16px; width:230px; font-size:12px;
+    display:none;
+  }
+  #detail h2{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;opacity:0.7;}
+  #detail .row{display:flex;justify-content:space-between;margin:5px 0;}
+  #detail .row .v{font-weight:700;color:var(--brass);}
+  #detail .close{
+    position:absolute; top:10px; right:12px; cursor:pointer; opacity:0.5; font-size:14px;
+  }
+  #detail .close:hover{opacity:1;}
+  #loadingScreen{
+    position:fixed;inset:0;z-index:100;background:var(--ink);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    transition:opacity 0.4s ease;
+  }
+  #loadingScreen img{width:96px;height:96px;animation:pulse 1.6s ease-in-out infinite;}
+  #loadingScreen .loading-label{color:var(--paper);opacity:0.6;font-size:13px;letter-spacing:0.04em;}
+  #loadingScreen.hidden{opacity:0;pointer-events:none;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.7;transform:scale(0.94);}}
+</style>
+</head>
+<body>
+<div id="loadingScreen">
+  <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAGFCAYAAADTpKXkAAAABmJLR0QA/wD/AP+gvaeTAAAbS0lEQVR4nO3dbYxc133f8d+5d3ZmH2bJ3eXy+VESJT6sKJFc2qYsS7ZrBbUsu7JiC4li10FQFEVSGEULFCgQtEDTd33TGihUOInboo4du44Vp45dJ7ETWpJFURIpkRTFB5ESSVFckVw+7PPszsw9fUGJ1gMp7jl7Z++ZO98PYMBaDld/7c7c3/2fc+45Rg204d4dG6JI2xJj1xvpdlm7XjKLrdRupLKu/q+tkTUAQA4lkkasNB5JQ7I6qci+qkR7q4W254/v2nNmPoowaX6zgXvu6asXpr9kFX3GyH5S0rI0vz8AYFaOyehnSsxfHnn6hSd1NXBSN/cAefTReONbr39RSr4mmc9KKs69LABASk4bq/8to8cPP7V3KM1v7B0g6x9cXyqMLfhdGfNvJa1PsSYAQPqmJfNdxbU/OrLrpZNpfEOvANl03+AXrfRfJK1LowgAwLyZluzjMyXzH1/7+d6RuXwjpwC54567V8Zt8Z9Yax6cy78UAJC5szL260ee3PeE7zeYdYBsuG/Hw0b2W5IW+f7LAABhsbLfLsTTf3Bo16Fx1787mwAxmz4x+EfW6A9n+XoAQDOxOiLFDx95+rljLn/tQwNhYGCgWO9t/58y+p25VQcACNwlWfOlI0+/sGu2f+GGATIwMFCs9bV/30hfTKU0AEDoZoz0W4ef2vuj2bw4uu5XH300Tvra/w/hAQAtpWil72+4f8c/mc2LrxsgG9868V+t9HC6dQEAmkDRWPv9Oz4x+ImbvfADQ1ib7t/+L601/60xdQEAmsSlOLYfO7Rr3/EbveA9AXLHJ7bdHZlot6SOhpcGAAjdwWJH9Z4Df3tg4np/eG0Ia+untvZEJnpChAcA4Kot05Nt37jRH14LkEo9flzSrfNSEgCgKRijf7bpvsGHrvtnkrTx/u2/KWt+OL9lAQCaxNk4rmx4/9Pq8cCnPrLMJvprSV0ZFQYACFu3TQrR8OmhX7z7i1G9Xv+epCUZFQUAaAZG/3rTx7etffeXIsl8Mqt6AABNo6Q4+nfv/sL1n0QHAOB9rPR7G+7dtuKdfyZAAACzVTJx9LV3/oEAAQDMntXv6e0VvJEkm201AIAmcsfAxz9yt0QHAgBwVC8kD0h0IAAAV1a/IV0NEI6pBQDMmpU+KsmYjfcNJiJEAAAOCiZawxAWAMBZXXYLk+gAAHeJXUeAAACcWWk1Q1gAAGfGmFV0IAAAZ1bJAgIEAODOmm4CBADgztgyAQIAcGZkykyiAwCcJRIdCADAnSFAAACeCgQIAMCHYQ4EAOAjogMBAPgwBAgAwEfEEBYAwIfhREIAgA8m0QEAfpgDAQB4IUAAAF4IEACAF+ZAAABe6EAAAF4IEACAFwIEAOCFORAAgBc6EACAFwIEAOCFAAEAeGEOBADghQ4EAOCFAAEAeCFAAABemAMBAHihAwEAeCFAAABeCBAAgBcCBADghUl0AIAXOhAAgBcCBADghQABAHhhDgQA4IUOBADghQABAHghQAAAXpgDAQB4oQMBAHghQAAAXggQAIAX5kAAAF7oQAAAXggQAIAXAgQA4IU5EACAFzoQAIAXAgQA4IUAAQB4IUAAAF4iyyQ6AMADHQgAwAsBAgDwQoAAALxEhjkQAIAHOhAAgBcCBADghQABAHhhM0UAgBc6EACAFwIEAOCFAAEAeGEOBADghQ4EAOCFAAEAeCFAAABemAMBAHihAwEAeCFAAABeCBAAgBcCBADghUl0AIAXOhAAgBcCBADghQABAHhhDgQA4IUOBADghQABAHghQAAAXiJZ5kAAAO7oQAAAXggQAIAXAgQA4CWSYQ4EAOCODgQA4IUAAQB4IUAAAF7YCwsA4KWQdQHIPxMbdS6M1dEbq7O3oNLCgkpdRiYyiouRCiWjKDJZlzlvooIUtd38v9daqV6xqlWtklqiWiXRzKTVzHhd05OJpkfrmrxUU2W0Pg9VAx9EgCB1nYsK6l1dVO+aonrXtKurvyDDYGnD1KatxoerGj9X0+U3pnXl1LTGh2tZl4UWQIBgzoyR+taVtGygQ0s3dajUHWddUksplIx6VhbVs7KoVds7JUkzE3VdOjmj80emdO5oRbVKknGVyCMCBN66l7dp9WCXlg10qNRFaISk2BVr2UCHlg10KKlbXXp9WkOHpvTWy5OqTTPtiXSYjfcNvilpRdaFoDkYY7R4Y7tu2VlW3y2lrMuBo/pMorMHpnT6+XGNDlWzLgfNrUoHglkxxmjF3R1a/+kF6uzlbdOs4mKk1Tu6tHpHl4ZPVHT8H0Z1+fRM1mWhSXElwE313VLSps/2aMHytqxLQYr6b2tX/23tunhiWod/dkVj5+hI4IYhLNxQ+4JYmz/fq6Ub27MuBQ1mE+nUc+N69e9HmXDHbFULMhwphQ9aflenBh7qUVsH629bgYmkdTvLWn5npw7+6JIuHKtkXRKaAENYeI+2jkgDX+jR8js7sy4FGSiVI+34Sr9OPz+uI38zonqVu0vcGAGCa8qL2zT41UVMkrc6I635aFk9a4ra991LmrrCQ4m4PsYnIEnqv62ke/75YsID1yxYVtS9v79Ei1iujRuImAHBmo+WteOfLlahnfsJvFdbR6QdX+tnSBPXxRWjxa27p1sDn+9hryrcUBQb3f1on1Zt78q6FASGy0YLW7ezrE0PLsy6DDQBY6QtD/dqzUcIEfwaAdKi1n6sS5se7Mm6DDQTI21+iBV6+LXIcqBUy1m6of1qeLTOERxIiYmM7vpSr/pv4+FS0IG0nHJ/QVu+3CfTQgc4IV1RbLTttxepvJitbVodAdJC2joiDX61X20lfu2Ym0LJaPtji3gvtTh++y3krt/sVWcfz3kgHV39Bd35SG/WZSBDkWEOpCWs2t6pJRs6si4DObNsc8e1UxDReuhAWkB7d6yN/5gVV2iMzQ/R2bYqAqQF3PnFXnbVRcPEbUZ3PdIrw7qMlsNVJeeWburQ4ttZconG6l1b0uodPGTYagiQHDNGuuOBBVmXgRZxxwMLVezkktJKIjGJnlurBsus1ce8aeuItP4fccPSSrhdyKm4zej2T3dnXQZazJodZXX2xlmXgXlCgOTUqu2dKnXzQcb8MpG07l5uXFoFAZJHRlrzMT7EyMaq7WWVurh5aQXMgeTQ4vXtKvezLh/ZiAvS8rt5aLUV0IHk0Nqd5axLQItbtY0lva2AAMmZ9u5Y/bdxhjWy1b20jcn0FkCA5MzSze1s1Y4gcGZI/jEHkjPLNrOxHcLQzw4IucdMa44Uu2L1rmuO4aukajUzmag6mSixV+9hapVEsle7p2ol0dtfVq1Sv+n3q81Itj67e6FqJfEr2kFcjBQ59PdRm1H89qfRGKP4XedsFIpGUXz15xIVrr62VI7VviDsIaK+W0sykWQb/+NGRgiQHFmyoRTshnb1mvTak6M6s29C1alE9SqN71wtXFHUup1lLb+rI8hhy7ZSpJ6VRV1+YybrUtAgBEiO9K4Ns/u48sa0DjxxWRMXa1mXkisjZ2e0/4lLOrmnqLse6VN5SXgf50W3tRMgOcYcSI70rQkvQC6+Pq09/2uY8GigkTdn9KtvntOb+yeyLuUDlmxkHiTPWIWVE6WuOLhDfS6+VtELfzashOGqhkuqVgeeuKxjPx8N6pZw4YqiOnvDel8iPQRITixcU5QCGgafvFzTvu9dIjzmk5VOPDmqg391OetK3oPVWPlFgOTEwuXhbNue1K1e/N7Fq6uqMO/O7JvQuVemsi7jmr51xaxLQINEJqiGF75CGr46s3dCo0PVrMtoaa/9ajzrEq7pXhrOzQ3SRQeSE6GMMyd1qxO/HMu6jJZ35cy0KqM3f35mPrQvCOO9ifQRIDnR2RfGQ2UXX5tWZSyMC1dLs9Lw8UrWVUiSCiWjthKXmjzit5oDhZJRMZDzF84fDmfsvdWNnAnn+Yu4FNAKD6SGAMmBQns4v8aRs8x9hGL0XDjP3ryzFQvypWCZREdarDR+wT9Aotho4Yo2LVheVKHdqMCwx3vUZxKdeWlSlZHZDRFWRkIKkKwrQCMwu4XUVCt+e1xFsdFt93dr7c6y2joIjQ9TXtaml75/aVavnR5LZOtWJoC7/xBqQPoIEKTGZ5dbExsNfrWfQ7BmqVSe/a28tVaVsbo6erL/mEcFAiSPuN1DauoV9+7j1nvLhIcD18vwbIe7Gs1la3s0DzZTRGqSxO2tZIy0bmd3g6rJJ9cP68xUIB/vALebx9xxX4DM9KwqqljmLejCOB74Up8JYzsZDpXKJz69SJHbxY0tLjw43sjXZsLoQKxjd4rmQIAgNdZxgKW9h7WdrozjzziUDsR1eBPNgTkQpMY4vpPiIvcv7hyHsKbD+HjbMObykTI+wUiNdQ0QlnY6cz3zPpiho1DqQKoIEGTGMILlzLpmrmviNAiT6PlEgCA1rtcq9kdqvEDyw7k7RXNgDgSZoQNxZ1yXYQUSIMgnOhCkxnV4JQrl9ripON7vBfIzDqQMpIwAQWpc747pQDxwIUZACBBkxrC9hTPXJ9GN69rqBnGe/EdTiJyf/gJuyO2txBkRjecaOI0SSBlIGR0IMsMqLHfN+hMLJciQLgIE6XFdIMS7z5l1HZIK5LrN7zqf+LUiNc7j8xwS4cz9ZxxGghAg+cSvFZkxMdNvjRZKRhMg+RQZ1+09AWTHdZgwkP3GQumEkC7uC5Ad1nY6c33WJpgOhF91LgXy9kIeuF4jOCPCg+MkeigPa9KB5FNk2QsLKXFdIcQOrY0XzFLpQMpAuuhAkJlQTsvLsyiQO/8wqkDaCBCkxnWJaXWK5teZ6zLeQIawkE8ECDJDB+LO/TypQO79udLkEr9WZKYyykHZznjaHwHh7YXMTF0mQFw59xOBdCBhVIG0ESBIj+NVYuxCtTF15FmzHkgYSJAhXQQIUuP6kNvo2RmGsRw5LzvgE44G4u2FzNhEOvijyzwP4qBpb+QtK+7yiABBejxOvxs+XtHL//cS15dZcz2RsEFlOOLXm0+FrAsAzuyb1MhQVSu2dKrYGSkuRlJiVUtxme/yLV0qlAK5ms6B6xG1oQQI+57lEwGCIIwNVXV0aKQh37vcX9DqwXJDvnfogrnzp8XMJYawkJ5gbnd/zRjpzod7A1qONDfNeqAU8ZFPdCDILWOMtjzSq961paxLyUwox/2wUCKfCBCkJox73aviNqOtX+7Tkk0dWZeSqVC2MgmjCqSNAEHulPsL2vpbi9S9tC3rUtLnvhlWQ8pwZZkDySUCBOkJ4Fq1cmunBr7Qq7gtgGKCEMiFO5AykC4CBKnJ8pIdtRlt+UKvVmztzLCKeeC8mWIYQWpDuLtA6gri3gBNrrOvoO2P5XTI6n2cR7AaUoU7hrDyiQ4E6cngarX49nZtfbRPhfYWWZHuOKfhesxwowRSBlJGgKBprd5R1sDne1rqzItmPVCK/MgnAgSpma+LhImkzZ/r0ZqPtt7T5c4dRRj5QYLkFAGCptLWEWnbby/Solta8+HAJl3FyxxIThEgSE2jL1adfQUNfrVf5f4Wftu6/pADSRDiI59a+JOI9DXuYtW7tqTtjy1SsbOFJjyuwzk/GlOGO7YyySUCBMFbvaNLAw/1yMTBXA6bRiANCHKKAEFqXM+quPn3k+54YKFuva871e/bUgIJEOZA8okAQZDiYqStX+7Vko2tvRninAUSIBwolU8ECILT2Rtr8CuLVV7C23PuuHCjcfiEIjVJfe7fo2d1SYOPLVKx3NqT5TfiOhKU9rCiL4aw8okAQWrsHANk5dZO3flwryImy1MTypPorOPNJwIEqTGx71+Ubv/UAq3/9IJU68kl5xakMWW4ogHJJwIEqYmL7leruM3o7i/1aelmJssbIpAAQT4RIEhNezlWW0ek6tTsnhprXxBr8Cv9WrA8/9uwp8X1Rj6Y/KADySVmKpEeI63dObsNDheubNM9/2IJ4dFgwcyBkCC5RAeCVK2/v1sTF6oaennqhq9ZfmeHtjzSx7Gz8yCU80Asz4HkUkGW0yaRHhMbbX10kZbdOaVjfzeiiYu1a3/WvjDW+k8u0OrBroDGVpqLcbwQh/JjZhlvPtGBIH1GWra5Q8s2d2h8uKbpkbqK5UjlxYVgzugGMHcECBqq3F9o7e3XU+Y8iU5go4GYRAfQcOFM5iNNBEgO2NrNX4OcYC4BASFAcqA2w2k9rYL4QEgIkByo16zqVS4tCFcomzoiXQRIHlhpaiSFrXBxfVYaeXNGSZ2LoD/mQPKIAMmJyYvVrEvIpYuvVfT04+f0zDfPKwmhy3Pezr0xZbgKpQ6ki/WVOTF2rqYlG7KuIj/qM4le+cmIzrw4ce1rzF/PAQGSSwRIToyfpwNJy9i5qvb9+UVNXmr+5W2h7CDivdU/gkaA5MTYOQIkDeePTGn/Dy+pNp2PdsMEcusfRYyW5xEBkhMTwzUldctpfnNw/JdjevXvR8JeKxtybR+CDiSfuC3IiaRudeXMTNZlNCVrpUM/vqxXfxF4eDQxtlTJJwIkRy6dJEBc1aatXvj2sE4/P3HzF8Ob4UqTS/xac2ToIBdBF5XRuvZ864KGj1dm9fpmXIUVygN8DK3mEwGSI+PnaxobYjJ9NkaHqtr9x+c1+lZzdW2u52okYeSHIuZAcokAyZmTe8azLiF4F45V9Oy3Lqgy2gJP77NNGhookmHaME+GDkxoZpyrxo2c2jOhvd8ZVt1nA8oAxrASx7JtKBnJCFYu0YHkTL0mvb57LOsygmOtdPinV/TKTy6HkAP+HGtPAvmPZRVWPhEgOXTq2fHWGJ6ZpXrV6sXvDuvks80/vOfcUQTSjDLQkU8ESA7Vq1bHd9GFSFdXWj37p+d17ujsVlp9mBAugc6T6MHMotOB5BEBklNn9k5opMUfLBw7V9XuPzmv0RytTLOuHUUgHUgQ6YvUESA5Za3Vob++0tzj/XMwfLyiZ//0vCo5OyfFtaMIpQPhQcJ84teaYyNnZ3TymdYbyjr57Lhe+PZw+hsihrC1rWMgOHcsDRLKpo5IFwGSc8d+Ptp0D8v5emel1eGfNqbzCuES6BoIoQSIojA6IaSLAMm5pG61/weXc7M9+Y3UZxLt/U5jV1q5TmA3pIYmDRA6kHwiQFrA+IWqXvrBxdzOh1TG6trzP4Z14djcV1p9qADOZa3XXIewwkgQ5kDyiV9ri7hwrKLD/+9K7lbDjJyd0e5vntfI2XkYpgsggeuO57KH0oHQgOQTB0q1kFPPjkvWavPnenPxgT57YFIv/9Vl54uqr+zjQ6rPuK7CalAhgAiQlnNqz4QqV+q668uLVCg1b4q8/syYjvxN6x0A5bqHVygdCFuZ5BMB0oLOHa3omW+e0/bHFqm8uC3rcpzYRHrlp1d0+rn535akOp4oLhhFsRQXsxn9dV0MURmtafJy9nup13O+iKNVmY33DR6QtCXrQjD/4jaj2z+zUOt2djXFHWKtkuilH1zShVcbPFk+W0Zqa/91kEQFo7hw859jvZoomcXzjUk1Ub02lwKBhqrSgbSwetXqyM+u6PzhKW3+XI+6l4fbjVw+Na39P7ysqSsBXVGtVJ0KZIwIyEDcv3bF70tamnUhyM7USF1v7J1QZayuBcuLKpTCWZxXr1od/bsRHfrxiKoVLtZAQJKCWm4aEtdjrfTGCxN688VJrR7s0tqPl9XVl12DautWb+yd0PFdo5rmgCwgSAxh4T2SutWp58Z1+vkJ9d1a1OrBspZtapeJ52mOxEpDh6Z07BcjmrwY0HAVgA8gQHBd1lpdPDGtiyem1d4da+Vgl1Zt61Rnb2PeMknd6q2DU3pt95jGcrT9OpBnBAhuqjJW14ldozrxy1H1rilp1bZOLRvonPNzJNZKV05P663DUzq7f1IzEwxVAc2EAMHs2auroS6fmtYrP7mipRs7tGRjh/puKalUvvHEu7XS9FhdU1fqmrhQ1chQVWNvzWjsXDX3mzwCeUaAwEu9anX24KTOHpyUJBXaI3X0xioUI0Vvv6vqFavKWF3T4/VgnogGkB4CBKmoVRKNDZESQCsJZ8E/AKCpECAAAC8ECADACwECAPBCgAAAvBAgAAAvBAgAwAsBAgDwQoAAALwQIAAAL5E4UAoA4CGSNE8nBQEA8oQAAQB4YQ4EAOAlkqUDAQC4owMBAHiJZOhAAADu6EAAAF5YhQUA8BIZAgQA4IEhLACAl8iyjBcA4IEOBADghWW8AAAvdCAAAC8s4wUAeKEDAQB4oQMBAHihAwEAeKEDAQB4oQMBAHhhLywAgBc6EACAl8jSgQAAPDCJDgDwwhAWAMALHQgAwAsdCADACx0IAMALHQgAwAsdCADACx0IAMALDxICALzQgQAAvLCZIgDACx0IAMBLJEMHAgBwRwcCAPASydKBAADc8SAhAMALQ1gAAC90IAAAL3QgAAAvTKIDALzQgQAAvPAgIQDACx0IAMALq7AAAF7oQAAAXuhAAABe6EAAAF7oQAAAXuhAAABe6EAAAF4IEACAF4awAABeIksHAgDwQAcCAPASGToQAIAHOhAAgBdWYQEAvNCBAAC80IEAALzQgQAAvNCBAAC80IEAALzQgQAAvNCBAAC80IEAALzQgQAAvNCBAAB8JAQIAMBHwhAWAMCHpQMBAPhIIkk26yoAAE0nicRKLACAu2nCAwDgY5I5EACAO6spOhAAgDtDgAAAfFhdYQgLAOBjiAABAPgYYggLAODMGnuODgQA4M5ERwkQAICzqFbfX8i6CABAc7HSlSPPvHiaORAAgBMj+4LYjRcA4Mpa82OJjRQBAK6imAABADjbf/TJ516XCBAAgAtrH3/n/0aSahmWAgBoHsPj9dK33/mHSFIlw2IAAE3CSv/9zO7dU+/8cyRpNMN6AADN4ZIpxt949xciI72WVTUAgOZgrP79kV88d/HdX4usNfuzKggA0BQOLi10//H7vxhJ+osMigEANIdEir6+a9euDyy4io48/cKTsno5i6oAAKGz3zjy1PO/vN6fRJISG9l/Nc8VAQDC98p4rfSHN/rDWJIunhp6vX/dilsl3T1vZQEAQjYT16MHT+zec+ZGL7j2JHqxvfoHkg7OS1kAgLBZ+/VDzzz/0oe95FqAHPjbAxM2ST5rpBONrwwAECoj/YcjT+/7wKqr93vPXlhHf/XiWdWTz0h6pWGVAQBClRiZf3P4qb3/aTYvvu5ZILc+MLiwOK3vSHoo1dIAAKGakLFfO/Lkvidm+xc+7DAps/G+7b8rmf8safHcawMABOqklX346FP7Drj8pZueRjgwMFBM+tp/Q8beYxXdJWtXSlouaYneXsUFAGhau5JYjx7btXfY9S/+f3A1kC9tZrYzAAAAAElFTkSuQmCC" alt="Damov logo" />
+  <div class="loading-label">Loading route data…</div>
+</div>
+<div id="map"></div>
+
+<div id="title" class="panel">
+  <h1>Damov Route</h1>
+  <div class="sub">Abuja Routes</div>
+  <p>All planned and active BRT corridors in one view. Click a route to
+  isolate it, or a line on the map for details.</p>
+</div>
+
+<div id="stops" class="panel">
+  <h2 id="stopsToggle" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+    <span>Stops</span>
+    <span id="stopsChevron" style="transition:transform 0.2s;">▾</span>
+  </h2>
+  <div id="stopsRows"></div>
+</div>
+
+<div id="search" class="panel">
+  <input type="text" id="searchInput" placeholder="Search routes…" />
+</div>
+
+<div id="routes" class="panel">
+  <h2 id="routesToggle" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+    <span>Routes</span>
+    <span id="routesChevron" style="transition:transform 0.2s;">▾</span>
+  </h2>
+  <div id="routeList"></div>
+</div>
+
+<div id="detail" class="panel">
+  <span class="close" id="detailClose">✕</span>
+  <h2 id="detailName">—</h2>
+  <div class="row"><span>Type</span><span class="v" id="detailType">—</span></div>
+  <div class="row"><span>Length</span><span class="v" id="detailLength">—</span></div>
+  <div class="row"><span>Duration</span><span class="v" id="detailDuration">—</span></div>
+  <div class="row"><span>Stops</span><span class="v" id="detailStops">—</span></div>
+</div>
+
+<script>
+const ABUJA_CENTER = [7.476, 9.0534]; // central Abuja (CBD/Wuse/Garki core)
+
+// --- Data source config ---------------------------------------------
+// Point this at your real file(s). Two supported shapes:
+//  1) ONE combined FeatureCollection where every route is a separate
+//     Feature carrying a `route_name` (or similar) + `category` property
+//     — this demo uses that shape, see routes_demo.geojson
+//  2) MULTIPLE separate per-route files — list them in ROUTE_FILES below
+//     instead, each with its own name/category, and the loader will merge
+//     them into the same internal shape automatically.
+const COMBINED_FILE = 'Connected_Route__1_.geojson';
+const ROUTE_FILES = null; // e.g. [{file:'trunk_a.geojson', name:'Trunk Line A', category:'trunk'}, ...]
+
+// property names to try, in order, if your schema differs from the demo
+const NAME_KEYS = ['route_name', 'name', 'route', 'line_name'];
+const CODE_KEYS = ['code', 'route_code', 'short_name'];
+const CATEGORY_KEYS = ['category', 'route_type', 'type'];
+// (lookups above are now case-insensitive, so "Name" in your file already
+// matches "name" here — no need to list every capitalization variant)
+
+const PALETTE = {
+  trunk: '#2f8f5b',
+  feeder: '#0E392C',
+  express: '#c1502e',
+  default: '#7fa8bd'
+};
+
+// Friendly display labels for category codes (legend + detail panel)
+const CATEGORY_LABELS = {
+  trunk: 'Primary Route',
+  feeder: 'Secondary Route',
+  express: 'Express',
+  default: 'Route'
+};
+
+// --- Stops config -----------------------------------------------------
+const STOP_LAYERS = [
+  { id: 'bus_stop', file: 'bus_stops.geojson', label: 'Bus Stops', color: '#71bf4f' },
+  { id: 'transit_hub', file: 'transit_hubs.geojson', label: 'Transit Hubs', color: '#c1502e', icon: 'transit-hub-icon' }
+];
+
+// Brand icon for Transit Hub markers (embedded so the file stays self-contained)
+const ICON_DATA = {
+  'transit-hub-icon': 'data:image/png;base64,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'
+};
+
+const map = new maplibregl.Map({
+  container: 'map',
+  // Free, no-API-key vector basemap from CARTO — this gives you real
+  // streets/labels underneath your data instead of a flat color panel.
+  style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  center: ABUJA_CENTER,
+  zoom: 12.5,
+  attributionControl: true
+});
+
+function readProp(props, keys, fallback) {
+  // Case-insensitive lookup: your data might use "Name" while the app
+  // checks for "name" — this matches them regardless of capitalization,
+  // so a casing mismatch can never again cause routes to silently drop.
+  const lower = {};
+  for (const k in props) lower[k.toLowerCase()] = props[k];
+  for (const k of keys) {
+    const v = lower[k.toLowerCase()];
+    if (v !== undefined) return v;
+  }
+  return fallback;
+}
+
+function loadRoutes() {
+  if (ROUTE_FILES) {
+    return Promise.all(ROUTE_FILES.map(r =>
+      fetch(r.file).then(res => res.json()).then(data => {
+        data.features.forEach(f => {
+          f.properties.route_name = f.properties.route_name || r.name;
+          f.properties.category = f.properties.category || r.category;
+        });
+        return data.features;
+      })
+    )).then(arrays => ({ type: 'FeatureCollection', features: arrays.flat() }));
+  }
+  return fetch(COMBINED_FILE).then(r => r.json());
+}
+
+let allData, activeId = null;
+const visibleRouteIds = new Set(); // empty = no routes shown until checked in the list
+
+function updateRouteFilter() {
+  if (!map.getLayer('routes-line')) return;
+  map.setFilter('routes-line', ['in', ['get', '__id'], ['literal', [...visibleRouteIds]]]);
+}
+
+function showLoadError(message) {
+  hideLoadingScreen();
+  const banner = document.createElement('div');
+  banner.className = 'panel';
+  banner.style.cssText = 'top:16px;left:50%;transform:translateX(-50%);padding:12px 20px;'
+    + 'max-width:520px;border-left:3px solid #c1502e;font-size:13px;line-height:1.5;z-index:10;';
+  banner.innerHTML = `<strong style="color:#c1502e;">Couldn't load route data.</strong><br>${message}`;
+  document.body.appendChild(banner);
+}
+
+function hideLoadingScreen() {
+  const el = document.getElementById('loadingScreen');
+  if (el) {
+    el.classList.add('hidden');
+    setTimeout(() => el.remove(), 450);
+  }
+}
+
+loadRoutes().then(data => {
+  if (!data || !data.features || data.features.length === 0) {
+    showLoadError(`Fetched ${COMBINED_FILE} but it had no features in it. Check the file isn't empty or malformed.`);
+    return;
+  }
+  allData = data;
+  allData.features.forEach((f, i) => {
+    f.properties.__id = i;
+    f.properties.__name = readProp(f.properties, NAME_KEYS, `Route ${i + 1}`);
+    f.properties.__code = readProp(f.properties, CODE_KEYS, f.properties.__name);
+    f.properties.__category = readProp(f.properties, CATEGORY_KEYS, 'default');
+    f.properties.__color = PALETTE[f.properties.__category] || PALETTE.default;
+    f.properties.__length_km = (turf.length(f, { units: 'kilometers' })).toFixed(2);
+  });
+
+  map.on('load', () => {
+    map.addSource('routes', { type: 'geojson', data: allData });
+    map.addLayer({
+      id: 'routes-line', type: 'line', source: 'routes',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-width': ['case', ['==', ['get', '__id'], -1], 6, 4],
+        'line-color': ['get', '__color'],
+        'line-opacity': 0.9
+      },
+      // Nothing is visible until its route is clicked in the Routes list.
+      filter: ['in', ['get', '__id'], ['literal', []]]
+    });
+
+    buildRouteList();
+    loadStops();
+    hideLoadingScreen();
+
+    // Frame the initial view on the central routes (Secondary/feeder set),
+    // since those are concentrated in the CBD/Wuse/Garki core — rather than
+    // the wide span the Primary routes cover out to Kubwa/Gwagwalada/Zuba.
+    const centralFeatures = allData.features.filter(f => f.properties.__category === 'feeder');
+    if (centralFeatures.length) {
+      const bbox = turf.bbox({ type: 'FeatureCollection', features: centralFeatures });
+      map.fitBounds(bbox, { padding: 60, duration: 0 });
+    }
+
+    map.on('click', 'routes-line', e => showDetail(e.features[0]));
+    map.on('mouseenter', 'routes-line', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'routes-line', () => map.getCanvas().style.cursor = '');
+  });
+}).catch(err => {
+  showLoadError(`${err.message}. Most likely cause: "${COMBINED_FILE}" isn't in the same folder as this HTML file, or the filename doesn't match exactly (this is case-sensitive).`);
+  console.error('Route data load failed:', err);
+});
+
+// --- Stops (Bus Stops / Transit Hubs) ---------------------------------
+function loadStops() {
+  const el = document.getElementById('stopsRows');
+  el.innerHTML = STOP_LAYERS.map(s => `
+    <div class="stop-row">
+      <input type="checkbox" id="toggle-${s.id}" data-layer="${s.id}" checked />
+      ${s.icon
+        ? `<img class="swatch-icon" src="${ICON_DATA[s.icon]}" alt="${s.label}" />`
+        : `<span class="swatch" style="background:${s.color}"></span>`}
+      <span>${s.label}</span>
+      <span class="count" id="count-${s.id}">…</span>
+    </div>`).join('');
+
+  STOP_LAYERS.forEach(s => {
+    const addStopLayer = () => {
+      fetch(s.file).then(r => r.json()).then(data => {
+        document.getElementById(`count-${s.id}`).textContent = data.features.length;
+
+        map.addSource(`stops-${s.id}`, { type: 'geojson', data });
+
+        if (s.icon) {
+          map.addLayer({
+            id: `stops-${s.id}-layer`, type: 'symbol', source: `stops-${s.id}`,
+            layout: { 'icon-image': s.icon, 'icon-size': 0.22, 'icon-allow-overlap': true }
+          });
+        } else {
+          map.addLayer({
+            id: `stops-${s.id}-layer`, type: 'circle', source: `stops-${s.id}`,
+            paint: {
+              'circle-radius': 5,
+              'circle-color': s.color,
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#0e1a17'
+            }
+          });
+        }
+
+        map.on('click', `stops-${s.id}-layer`, e => {
+          const f = e.features[0];
+          new maplibregl.Popup({ offset: 10 })
+            .setLngLat(e.lngLat)
+            .setHTML(`<strong>${f.properties.Name}</strong>`)
+            .addTo(map);
+        });
+        map.on('mouseenter', `stops-${s.id}-layer`, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', `stops-${s.id}-layer`, () => map.getCanvas().style.cursor = '');
+      }).catch(err => {
+        document.getElementById(`count-${s.id}`).textContent = '—';
+        console.error(`Failed to load ${s.file}:`, err);
+      });
+    };
+
+    if (s.icon) {
+      map.loadImage(ICON_DATA[s.icon]).then(image => {
+        if (!map.hasImage(s.icon)) map.addImage(s.icon, image.data);
+        addStopLayer();
+      }).catch(err => {
+        console.error('Icon load failed:', err);
+        addStopLayer();
+      });
+    } else {
+      addStopLayer();
+    }
+  });
+
+  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const layerId = `stops-${cb.dataset.layer}-layer`;
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', cb.checked ? 'visible' : 'none');
+      }
+    });
+  });
+}
+
+function buildRouteList(filterText = '') {
+  const el = document.getElementById('routeList');
+  const rows = allData.features
+    .filter(f => {
+      const q = filterText.toLowerCase();
+      return f.properties.__name.toLowerCase().includes(q) ||
+             f.properties.__code.toLowerCase().includes(q);
+    })
+    .map(f => {
+      const p = f.properties;
+      const dimmed = activeId !== null && activeId !== p.__id ? 'dimmed' : '';
+      return `
+        <div class="route-row ${dimmed}" data-id="${p.__id}" title="${p.__name}">
+          <span class="swatch" style="background:${p.__color}"></span>
+          <span class="name">${p.__code}</span>
+        </div>`;
+    }).join('');
+  el.innerHTML = rows || '<div style="opacity:0.5;padding:8px 0;">No matches</div>';
+
+  el.querySelectorAll('.route-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = +row.dataset.id;
+      const feature = allData.features.find(f => f.properties.__id === id);
+      if (!visibleRouteIds.has(id)) {
+        visibleRouteIds.add(id);
+        updateRouteFilter();
+      }
+      focusRoute(feature);
+    });
+  });
+}
+
+function focusRoute(feature) {
+  activeId = activeId === feature.properties.__id ? null : feature.properties.__id;
+  buildRouteList(document.getElementById('searchInput').value);
+
+  if (activeId !== null) {
+    const bbox = turf.bbox(feature);
+    map.fitBounds(bbox, { padding: 80, duration: 800 });
+    map.setPaintProperty('routes-line', 'line-opacity', [
+      'case', ['==', ['get', '__id'], activeId], 1, 0.15
+    ]);
+    showDetail(feature);
+  } else {
+    map.setPaintProperty('routes-line', 'line-opacity', 0.9);
+    hideDetail();
+  }
+}
+
+function showDetail(feature) {
+  const p = feature.properties;
+  const km = readProp(p, ['total_kilometer', 'total_km'], null);
+  const minutes = readProp(p, ['total_minutes'], null);
+  const stops = readProp(p, ['stop_count'], null);
+
+  document.getElementById('detailName').textContent = p.__name;
+  document.getElementById('detailType').textContent = CATEGORY_LABELS[p.__category] || p.__category;
+  document.getElementById('detailLength').textContent = (km !== null ? km : p.__length_km) + ' km';
+  document.getElementById('detailDuration').textContent = minutes !== null ? minutes + ' min' : '—';
+  document.getElementById('detailStops').textContent = stops !== null ? stops : '—';
+  document.getElementById('detail').style.display = 'block';
+}
+function hideDetail() {
+  document.getElementById('detail').style.display = 'none';
+}
+
+document.getElementById('searchInput').addEventListener('input', e => {
+  buildRouteList(e.target.value);
+});
+document.getElementById('detailClose').addEventListener('click', () => {
+  activeId = null;
+  buildRouteList(document.getElementById('searchInput').value);
+  map.setPaintProperty('routes-line', 'line-opacity', 0.9);
+  hideDetail();
+});
+document.getElementById('routesToggle').addEventListener('click', () => {
+  document.getElementById('routes').classList.toggle('collapsed');
+});
+document.getElementById('stopsToggle').addEventListener('click', () => {
+  document.getElementById('stops').classList.toggle('collapsed');
+});
+</script>
+</body>
+</html>
