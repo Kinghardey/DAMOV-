@@ -29,15 +29,14 @@
   #title.collapsed #titleChevron{transform:rotate(-90deg);}
 
   #stops{bottom:16px;left:16px;padding:12px 16px;font-size:12px;width:210px;
-    max-height:220px;overflow-y:auto;transition:max-height 0.25s ease, padding 0.25s ease;}
+    max-height:220px;overflow-y:auto;}
   #stops h2{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;opacity:0.7;}
-  #stops.collapsed{max-height:38px;overflow:hidden;padding-bottom:14px;}
-  #stops.collapsed #stopsChevron{transform:rotate(-90deg);}
   .stop-row{display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;}
   .stop-row .swatch{width:10px;height:10px;border-radius:50%;flex:none;}
   .stop-row .swatch-icon{width:16px;height:16px;border-radius:50%;flex:none;object-fit:cover;}
   .stop-row .count{opacity:0.55;font-size:11px;margin-left:auto;}
   .stop-row input[type=checkbox]{accent-color:#71bf4f;}
+
 
   #search{
     top:16px; right:16px; padding:12px 14px; width:230px; font-size:12px;
@@ -86,6 +85,13 @@
   #loadingScreen .loading-label{color:var(--paper);opacity:0.6;font-size:13px;letter-spacing:0.04em;}
   #loadingScreen.hidden{opacity:0;pointer-events:none;}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.7;transform:scale(0.94);}}
+
+  /* Hide the title/intro panel on phone-sized screens — the sidebar
+     clutter isn't worth it on a small viewport where map real estate
+     matters more. */
+  @media (max-width: 640px){
+    #title{display:none;}
+  }
 </style>
 </head>
 <body>
@@ -108,10 +114,7 @@
 </div>
 
 <div id="stops" class="panel">
-  <h2 id="stopsToggle" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
-    <span>Stops</span>
-    <span id="stopsChevron" style="transition:transform 0.2s;">▾</span>
-  </h2>
+  <h2>Stops</h2>
   <div id="stopsRows"></div>
 </div>
 
@@ -453,9 +456,6 @@ document.getElementById('titleToggle').addEventListener('click', () => {
 });
 document.getElementById('routesToggle').addEventListener('click', () => {
   document.getElementById('routes').classList.toggle('collapsed');
-});
-document.getElementById('stopsToggle').addEventListener('click', () => {
-  document.getElementById('stops').classList.toggle('collapsed');
 });
 </script>
 </body>
